@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, Suspense } from "react";
 import axios from "axios";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
@@ -32,27 +32,39 @@ const setUserIdHeader = (userId) => {
   }
 };
 
-export default function WebAuthnUI() {
+// Separate component to handle authentication status
+function AuthStatus({ setStatus }) {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const initialStatus = searchParams.get("status") || "registered";
-  const [status, setStatus] = useState(initialStatus);
+
+  useEffect(() => {
+    const checkAuthStatus = () => {
+      const jwt = getCookie("jwt");
+      if (jwt) {
+        setAuthToken(jwt);
+        router.push("/protected");
+      } else {
+        const statusParam = searchParams.get("status");
+        if (statusParam) {
+          setStatus(statusParam);
+        }
+      }
+    };
+
+    checkAuthStatus();
+  }, [router, searchParams, setStatus]);
+
+  return null; // This component doesn't render anything
+}
+
+export default function WebAuthnUI() {
+  const [status, setStatus] = useState("registered"); // Default status
   const [username, setUsername] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
   const [loading, setLoading] = useState(false);
 
-  useEffect(() => {
-    checkAuthStatus();
-  }, []);
-
-  const checkAuthStatus = () => {
-    const jwt = getCookie("jwt");
-    if (jwt) {
-      setAuthToken(jwt);
-      router.push("/protected");
-    }
-  };
+  const router = useRouter();
 
   const handleRegister = async () => {
     if (!username) {
@@ -68,9 +80,7 @@ export default function WebAuthnUI() {
     try {
       const response = await axiosInstance.post(
         "/api/v1/webauthn/registration/begin",
-        {
-          username,
-        }
+        { username }
       );
 
       const { publicKey } = response.data;
@@ -90,19 +100,12 @@ export default function WebAuthnUI() {
       const verificationResponse = await axiosInstance.post(
         "/api/v1/webauthn/registration/finish",
         attestationResponse,
-        {
-          headers: {
-            "X-User-Id": userId,
-          },
-        }
+        { headers: { "X-User-Id": userId } }
       );
 
       setUserIdHeader(null);
 
-      if (
-        verificationResponse.status === 200 &&
-        verificationResponse.data.payload
-      ) {
+      if (verificationResponse.status === 200 && verificationResponse.data.payload) {
         const jwt = verificationResponse.data.payload.token;
         setAuthToken(jwt);
         setCookie("jwt", jwt, {
@@ -163,19 +166,12 @@ export default function WebAuthnUI() {
       const verificationResponse = await axiosInstance.post(
         "/api/v1/webauthn/login/finish",
         assertionResponse,
-        {
-          headers: {
-            "X-User-Id": userId,
-          },
-        }
+        { headers: { "X-User-Id": userId } }
       );
 
       setUserIdHeader(null);
 
-      if (
-        verificationResponse.data.success &&
-        verificationResponse.data.payload
-      ) {
+      if (verificationResponse.data.success && verificationResponse.data.payload) {
         const jwt = verificationResponse.data.payload.token;
         setAuthToken(jwt);
         setCookie("jwt", jwt, {
@@ -202,24 +198,17 @@ export default function WebAuthnUI() {
       error.code === "ECONNREFUSED" ||
       error.message.includes("Network Error")
     ) {
-      setErrorMessage(
-        "The server is currently unavailable. Please try again later."
-      );
-    } else if (error === 'user already exists') {
+      setErrorMessage("The server is currently unavailable. Please try again later.");
+    } else if (error === "user already exists") {
       setErrorMessage(error);
     } else if (error.response) {
       if (error.response.data) {
         setErrorMessage(error.response.data.error);
       } else {
-        setErrorMessage(
-          `Unable to complete ${action.toLowerCase()}. Please try again.`
-        );
+        setErrorMessage(`Unable to complete ${action.toLowerCase()}. Please try again.`);
       }
-      
     } else if (error.request) {
-      setErrorMessage(
-        "The server is currently unreachable. Please check your network connection."
-      );
+      setErrorMessage("The server is currently unreachable. Please check your network connection.");
     } else {
       setErrorMessage("An unexpected error occurred. Please try again.");
     }
@@ -227,88 +216,83 @@ export default function WebAuthnUI() {
   };
 
   return (
-    <div className={styles.container}>
-      <div className={styles.card}>
-        {status === "not_registered" && (
-          <>
-            <h2 className={styles.title}>Register</h2>
-            <p className={styles.message}>
-            This service supports only WebAuthn/FIDO2 passkeys to ensure the highest level
-            of privacy and security.
-            </p>
-            {errorMessage && (
-              <p className={styles.errorMessage}>{errorMessage}</p>
-            )}
-            {successMessage && (
-              <p className={styles.successMessage}>{successMessage}</p>
-            )}
-            <input
-              type="text"
-              placeholder="Enter your username"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              className={styles.inputField}
-              required
-            />
-            <button
-              onClick={handleRegister}
-              disabled={loading}
-              className={styles.button}
-            >
-              {loading ? "Registering..." : "Register"}
-            </button>
-            <p
-              onClick={() => setStatus("registered")}
-              className={styles.clickableText}
-            >
-              Already have an account? Log In
-            </p>
-          </>
-        )}
+    <Suspense fallback={<div>Loading...</div>}>
+      {/* AuthStatus handles the authentication status and updates the component state */}
+      <AuthStatus setStatus={setStatus} />
 
-        {status === "registered" && (
-          <>
-            <h2 className={styles.title}>Login</h2>
-            <p className={styles.message}>
-              Use your passkey to log in securely.
-            </p>
-            {errorMessage && (
-              <p className={styles.errorMessage}>{errorMessage}</p>
-            )}
-            {successMessage && (
-              <p className={styles.successMessage}>{successMessage}</p>
-            )}
-            <input
-              type="text"
-              placeholder="Enter your username"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              className={styles.inputField}
-              required
-            />
-            <button
-              onClick={handleLogin}
-              disabled={loading}
-              className={styles.button}
-            >
-              {loading ? "Authenticating..." : "Log In"}
-            </button>
-            <p
-              onClick={() => setStatus("not_registered")}
-              className={styles.clickableText}
-            >
-              Don’t have an account? Register
-            </p>
-          </>
-        )}
+      <div className={styles.container}>
+        <div className={styles.card}>
+          {status === "not_registered" && (
+            <>
+              <h2 className={styles.title}>Register</h2>
+              <p className={styles.message}>
+                This service supports only WebAuthn/FIDO2 passkeys to ensure the highest level
+                of privacy and security.
+              </p>
+              {errorMessage && <p className={styles.errorMessage}>{errorMessage}</p>}
+              {successMessage && <p className={styles.successMessage}>{successMessage}</p>}
+              <input
+                type="text"
+                placeholder="Enter your username"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                className={styles.inputField}
+                required
+              />
+              <button
+                onClick={handleRegister}
+                disabled={loading}
+                className={styles.button}
+              >
+                {loading ? "Registering..." : "Register"}
+              </button>
+              <p
+                onClick={() => setStatus("registered")}
+                className={styles.clickableText}
+              >
+                Already have an account? Log In
+              </p>
+            </>
+          )}
 
-        {status === "registering" && (
-          <p>Registering... Please follow the instructions.</p>
-        )}
-        {status === "authenticating" && (
-          <p>Authenticating... Please follow the instructions.</p>
-        )}
+          {status === "registered" && (
+            <>
+              <h2 className={styles.title}>Login</h2>
+              <p className={styles.message}>Use your passkey to log in securely.</p>
+              {errorMessage && <p className={styles.errorMessage}>{errorMessage}</p>}
+              {successMessage && <p className={styles.successMessage}>{successMessage}</p>}
+              <input
+                type="text"
+                placeholder="Enter your username"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                className={styles.inputField}
+                required
+              />
+              <button
+                onClick={handleLogin}
+                disabled={loading}
+                className={styles.button}
+              >
+                {loading ? "Authenticating..." : "Log In"}
+              </button>
+              <p
+                onClick={() => setStatus("not_registered")}
+                className={styles.clickableText}
+              >
+                Don’t have an account? Register
+              </p>
+            </>
+          )}
+
+          {status === "registering" && (
+            <p>Registering... Please follow the instructions.</p>
+          )}
+          {status === "authenticating" && (
+            <p>Authenticating... Please follow the instructions.</p>
+          )}
+        </div>
       </div>
-    </div>
+    </Suspense>
   );
 }
