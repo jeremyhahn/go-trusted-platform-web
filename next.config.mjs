@@ -7,8 +7,11 @@ const nextConfig = {
   images: {
     unoptimized: true, // Disable image optimization if using next/image
   },
-  // Correct assetPrefix configuration
-  assetPrefix: '/', // Use '/' if serving from the root, or set to an absolute URL
+  assetPrefix: '/', // Use './' for relative paths in static export
+  trailingSlash: true, // Ensure trailing slashes for better static handling
+  basePath: '', // Ensure no additional prefixes are applied
+  // assetPrefix: process.env.ASSET_PREFIX || '/', // Ensure this starts with a slash or a full URL
+  reactStrictMode: true,
 };
 
 const withBundleAnalyzer = bundleAnalyzer({

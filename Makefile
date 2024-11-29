@@ -23,3 +23,6 @@ default: dev
 
 dev:
 	yarn run dev
+
+rpi-sync:
+	rsync -av --progress ../$(PACKAGE) $(RPI_HOST): --exclude ./.git/
